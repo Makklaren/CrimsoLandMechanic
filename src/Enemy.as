@@ -1,6 +1,7 @@
 package
 {
     import be.dauntless.astar.basic2d.BasicTile;
+    import be.dauntless.astar.basic2d.IWalkableTile;
     import be.dauntless.astar.basic2d.Map;
     import be.dauntless.astar.basic2d.analyzers.WalkableAnalyzer;
     import be.dauntless.astar.core.Astar;
@@ -9,26 +10,25 @@ package
     import be.dauntless.astar.core.PathRequest;
 
     import flash.display.Sprite;
+    import flash.filters.GlowFilter;
     import flash.geom.Point;
-
     import math.Amath;
     import math.Avector;
 
-    public class Enemy extends Sprite
+    public class Enemy extends ExtendedSprite
     {
         private var _map:Map;
         private var _astar:Astar;
         private var _pathRequest:PathRequest;
-        private var _mapCell:Array;
+        private var _mapView:MapView;
         private var _isWay = false;
         private var _wayIndex = 0; // Текущий шаг
         private var _sprite:Sprite;
-        private var _way:Vector.<IAstarTile>;
+        private var _way:Array;
         protected var _wayTarget:Point; // Текущая цель
-        protected var _targetPos:Avector = new Avector();
+        protected var _targetPos:Point = new Point();
         protected var _defSpeed:Number = 50; // Скорость
         protected var _rotationSpeed:Number = 15;
-
         protected var _position:Point; // Текущее положение врага
         protected var _target:Point; // Цель куда должен прийти враг
         protected var _speed:Avector = new Avector();
@@ -36,47 +36,50 @@ package
         protected var _oldAngle:Number = 0;
         private var _calcDelay:uint = 0;
         private var _oldPosition:Point = new Point();
+        private var _waySprite:Sprite;
 
-        public function Enemy(map:Map, mapCell:Array)
+        public function Enemy(map:Map, mapView:MapView)
         {
             _map = map;
-            _mapCell = mapCell;
+            _mapView = mapView;
+            _defSpeed = Amath.random(20, 80);
 
+            super();
+        }
+
+        override protected function init():void
+        {
             _sprite = new Sprite();
-            _sprite.graphics.beginFill(0xBB0000);
-            _sprite.graphics.drawCircle(0,0, 10);
+            _sprite.graphics.beginFill(0xCCCC33);
+            _sprite.graphics.drawCircle(0, 0, 10);
             _sprite.graphics.endFill();
             addChild(_sprite);
 
-            for (var yS:Number = 0; yS < _mapCell.length; yS++)
-            {
-                for (var xS:Number = 0; xS < (_mapCell[yS] as Array).length; xS++)
-                {
-                    if(_mapCell[yS][xS].hitTestPoint(this.x, this.y))
-                    {
-                        var startPoint:Point = new Point(yS, xS);
-                        trace("startPoint "+startPoint)
-                    }
-
-                    if(_mapCell[yS][xS].hitTestPoint(mouseX, mouseY))
-                    {
-                        var endPoint:Point = new Point(yS, xS);
-                        trace("endPoint "+endPoint)
-                    }
-                }
-            }
-
-
+            var point:Sprite = new Sprite();
+            point.graphics.lineStyle(2, 0x666666, 1);
+            point.graphics.moveTo(0, 0);
+            point.graphics.lineTo(10, 0);
+            _sprite.addChild(point);
+            _sprite.rotation = 0;
+            _sprite.filters = [new GlowFilter(0x000000, 1.0, 2.0, 2, 4,3 )];
 
             _astar = new Astar();
             _astar.addEventListener(AstarEvent.PATH_FOUND, onPathFound);
             _astar.addEventListener(AstarEvent.PATH_NOT_FOUND, onPathNotFound);
 
-            _pathRequest = new PathRequest(IAstarTile(_map.getTileAt(startPoint)), IAstarTile(_map.getTileAt(endPoint)), map);
+            _mapView.addEventListener(MapCellEvent.INSTALL_NEW_CELL, onInstallNewCell);
+        }
 
-            _astar.addAnalyzer(new WalkableAnalyzer());
-            _astar.getPath(_pathRequest);
+        private function onInstallNewCell(event:MapCellEvent):void
+        {
+            trace("enemy position " + _mapView.getPositionCellCoordinates(new Point(this.x, this.y)) + " new target position " + event.positionCell);
 
+            if (IWalkableTile(_map.getTileAt(event.positionCell)).getWalkable())
+            {
+                _pathRequest = new PathRequest(IAstarTile(_map.getTileAt(_mapView.getPositionCellCoordinates(new Point(this.x, this.y)))), IAstarTile(_map.getTileAt(event.positionCell)), _map);
+                _astar.addAnalyzer(new WalkableAnalyzer(true));
+                _astar.getPath(_pathRequest);
+            }
         }
 
         private function onPathNotFound(event:AstarEvent):void
@@ -87,109 +90,74 @@ package
 
         private function onPathFound(event:AstarEvent):void
         {
-            trace("Path was found: ");
-         //   for (var i:int = 0; i < event.result.path.length; i++)
-         //   {
-          //      trace((event.result.path[i] as BasicTile).getPosition());
-         //   }
+            //trace("Path was found: ");
+            // _way = event.result.path;
 
-            _way = event.result.path;
+            //  _sprite.rotation = _newAngle;
+            _way = [];
+            for (var i:int = 0; i < event.result.path.length; i++)
+            {
+                _way.push((event.result.path[i] as BasicTile).getPosition());
+            }
 
             _isWay = true;
             _wayIndex = 0; // Текущий шаг
             setNextTarget(); // Устанавливаем цель
-            _sprite.rotation = _newAngle;
+
+           // _mapView.showPath(_way);
         }
 
-        public function update(delta:Number, position:Point):void
+        public function update(delta:Number):void
         {
-
-
-           // trace("position "+position)
-
-            if(_oldPosition.x != position.x && _oldPosition.y != position.y)
-            {
-                _oldPosition = position;
-
-                for (var yS:Number = 0; yS < _mapCell.length; yS++)
-                {
-                    for (var xS:Number = 0; xS < (_mapCell[yS] as Array).length; xS++)
-                    {
-                        if(hitTestPoint(_mapCell[yS][xS].x, _mapCell[yS][xS].y))
-                        {
-                            var startPoint:Point = new Point(yS, xS);
-                            trace("startPoint "+startPoint)
-                        }
-
-                        if(_mapCell[yS][xS].hitTestPoint(_oldPosition.x, _oldPosition.y))
-                        {
-                            var endPoint:Point = new Point(yS, xS);
-                            trace("endPoint "+endPoint)
-                        }
-                    }
-                }
-
-                if(startPoint == null)
-                    startPoint = new Point();
-
-                _pathRequest = new PathRequest(IAstarTile(_map.getTileAt(startPoint)), IAstarTile(_map.getTileAt(endPoint)), _map);
-
-                _astar.getPath(_pathRequest);
-            }
-
-
             if (_isWay)
             {
                 // Разница между текущим и новым углом разворота
-                var offsetAngle:Number = _sprite.rotation - _newAngle;
+                /*       var offsetAngle:Number = _sprite.rotation - _newAngle;
 
-                // Нормализация разницы углов
-                if (offsetAngle > 180)
-                {
-                    offsetAngle = -360 + offsetAngle;
-                }
-                else if (offsetAngle < -180)
-                {
-                    offsetAngle = 360 + offsetAngle;
-                }
+                 // Нормализация разницы углов
+                 if (offsetAngle > 180)
+                 {
+                 offsetAngle = -360 + offsetAngle;
+                 }
+                 else if (offsetAngle < -180)
+                 {
+                 offsetAngle = 360 + offsetAngle;
+                 }
 
-                // Плавный разворот еденицы
-                if (Math.abs(offsetAngle) < _rotationSpeed)
-                {
-                    _sprite.rotation -= offsetAngle;
-                }
-                else if (offsetAngle > 0)
-                {
-                    _sprite.rotation -= _rotationSpeed;
-                }
-                else
-                {
-                    _sprite.rotation += _rotationSpeed;
-                }
+                 // Плавный разворот еденицы
+                 if (Math.abs(offsetAngle) < _rotationSpeed)
+                 {
+                 _sprite.rotation -= offsetAngle;
+                 }
+                 else if (offsetAngle > 0)
+                 {
+                 _sprite.rotation -= _rotationSpeed;
+                 }
+                 else
+                 {
+                 _sprite.rotation += _rotationSpeed;
+                 }
 
-                // Если поворот спрайта изменился, перерасчитываем векторную скорость
-                if (_sprite.rotation != _oldAngle)
-                {
-                    _speed.asSpeed(_defSpeed, Amath.toRadians(_sprite.rotation));
-                    _oldAngle = _sprite.rotation;
-                }
+                 // Если поворот спрайта изменился, перерасчитываем векторную скорость
+                 if (_sprite.rotation != _oldAngle)
+                 {
+                 _speed.asSpeed(_defSpeed, Amath.toRadians(_sprite.rotation));
+                 _oldAngle = _sprite.rotation;
+                 }*/
+                /**/
+                /**/
                 // Двигаем юнита
-                var angle:Number = Amath.getAngle(x, y, _targetPos.x, _targetPos.y);
-                _sprite.rotation = Amath.toDegrees(angle);
-                x += _defSpeed * Math.cos(angle) * delta;
-                y += _defSpeed * Math.sin(angle) * delta;
-
-                // Текущее положение
-                var cp:Avector = new Avector(x, y);
+                var angle:Number = Amath.getAngle(this.x, this.y, _targetPos.x, _targetPos.y);
+                // trace("angle "+angle);
+                this.rotation = Amath.toDegrees(angle);
+                // trace("this.rotation "+this.rotation);
+                this.x += _defSpeed * Math.cos(angle) * delta;
+                this.y += _defSpeed * Math.sin(angle) * delta;
 
                 // Переходим к новому шагу если текущая цель достигнута
                 // Внимание! Чем больше скорость движения врага тем больше должна быть погрешность
-                if (cp.equal(_targetPos, _defSpeed / 5))
+                if ((Amath.equal(_targetPos.x, this.x, _defSpeed / 50) && Amath.equal(_targetPos.y, this.y, _defSpeed / 50)))
                 {
-                    // Обновляем текущие координаты в клеточках
-                   // _position.x = Universe.toTile(x);
-                   // _position.y = Universe.toTile(y);
-
                     _wayIndex++;
                     setNextTarget();
                 }
@@ -198,29 +166,21 @@ package
 
         protected function setNextTarget():void
         {
-            trace("_wayIndex "+_wayIndex+" _way.length "+_way.length)
             if (_wayIndex == _way.length)
             {
-                // Вес маршрут пройден
                 _isWay = false;
+                trace("this.x "+this.x+" this.y "+this.y)
             }
             else
             {
                 // Новая цель
-                _wayTarget = (_way[_wayIndex] as BasicTile).getPosition();
-                _targetPos.set(_wayTarget.x, _wayTarget.y);
-                _targetPos.x += Amath.random(-10, 10);
-                _targetPos.y += Amath.random(-10, 10);
+                _wayTarget = _way[_wayIndex];
+                var cell:Sprite = _mapView.cell(_wayTarget.x, _wayTarget.y);
+                _targetPos = _mapView.localToGlobal(new Point(cell.x, cell.y));
 
-                // Расчет угла между текущими координатами и следующей точкой
-              //  var angle:Number = Amath.getAngle(x, y, _targetPos.x, _targetPos.y);
-                _newAngle = Amath.toDegrees(Amath.getAngle(x, y, _targetPos.x, _targetPos.y));
-
-                // Установка новой скорости
-               // _speed.asSpeed(_defSpeed, angle);
-
-                // Разворот спрайта
-                //_sprite.rotation = Amath.toDegrees(angle);
+                trace("_targetPos " + _targetPos + " _wayTarget " + _wayTarget);
+                // _targetPos.x += Amath.random(-10, 10);
+                // _targetPos.y += Amath.random(-10, 10);
             }
         }
     }
